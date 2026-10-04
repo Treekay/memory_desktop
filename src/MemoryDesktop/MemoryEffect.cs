@@ -14,21 +14,27 @@ namespace MemoryDesktop
         void Draw(DrawingContext drawing, Size size, double time);
         void DrawNative(System.Drawing.Graphics drawing, Size size, double time);
         long NativeFrameKey(Size size, double time);
+        void SetDwell(PhotoDwell preset);
         void Clear();
         int ActiveCount { get; }
     }
 
     internal sealed class MemoryEffect : IPhotoEffect
     {
-        internal const double Lifetime = 18;
+        internal const double FadeIn = 2.8, FadeOut = 3.8;
+        internal const double Lifetime = FadeIn + 6 + FadeOut;
         private sealed class Fragment
         { public BitmapSource Photo; public System.Drawing.Bitmap NativePhoto; public NativeImage Sprite; public int SpriteWidth, SpriteHeight; public int Slot; public double Birth, Life, X, Y, Phase, Scale; }
         private readonly List<Fragment> fragments = new List<Fragment>();
         private readonly Random random;
         private readonly double[] due = new double[2];
+        private PhotoDwell dwellPreset;
         private static readonly Rect[] regions = { new Rect(.07, .10, .41, .76), new Rect(.53, .16, .40, .76) };
         public int ActiveCount { get { return fragments.Count; } }
         internal double[] ExpiryTimes { get { return fragments.ConvertAll(fragment => fragment.Birth + fragment.Life).ToArray(); } }
+        internal double[] BirthTimes { get { return fragments.ConvertAll(fragment => fragment.Birth).ToArray(); } }
+        internal double[] DwellTimes { get { return fragments.ConvertAll(fragment => fragment.Life - FadeIn - FadeOut).ToArray(); } }
+        public void SetDwell(PhotoDwell preset) { dwellPreset = preset; }
 
         public MemoryEffect(int seed)
         {
@@ -54,14 +60,18 @@ namespace MemoryDesktop
         {
             int slot = NextSlot(time); if (slot < 0) return;
             if (photo == null) { due[slot] = time + 30; return; }
-            double life = Lifetime + random.NextDouble() * 6;
+            double minimum, maximum; DwellOptions.Bounds(dwellPreset, out minimum, out maximum);
+            double life = FadeIn + minimum + random.NextDouble() * (maximum - minimum) + FadeOut;
+            double birth = time;
             foreach (var active in fragments)
-                if (Math.Abs(time + life - active.Birth - active.Life) < 6) life = active.Birth + active.Life + 7 - time;
-            fragments.Add(new Fragment { Photo = photo, NativePhoto = NativeBitmap.FromSource(photo), Slot = slot, Birth = time, Life = life,
+                if (Math.Abs(birth + life - active.Birth - active.Life) < 4) birth = active.Birth + active.Life + 4 - life;
+            // Reserve a future arrival when needed, rather than extending the
+            // chosen fully-visible dwell beyond its advertised range.
+            fragments.Add(new Fragment { Photo = photo, NativePhoto = NativeBitmap.FromSource(photo), Slot = slot, Birth = birth, Life = life,
                 X = random.NextDouble(), Y = random.NextDouble(), Scale = .82 + random.NextDouble() * .16, Phase = random.NextDouble() * Math.PI * 2 });
             // Each occupied region owns its expiry and its next arrival. There is
             // no global batch replacement or common fade clock.
-            due[slot] = time + life + .6 + random.NextDouble() * 1.2;
+            due[slot] = birth + life + .6 + random.NextDouble() * 1.2;
         }
         private void ResetSchedule()
         { int first = random.Next(2); due[first] = 0; due[(first + 1) % 2] = 7 + random.NextDouble() * 2; }
@@ -94,7 +104,7 @@ namespace MemoryDesktop
         internal static double Opacity(double age)
         { return Opacity(age, Lifetime); }
         internal static double Opacity(double age, double life)
-        { return age < 0 || age >= life ? 0 : .96 * Smooth(age / 2.8) * Smooth((life - age) / 3.8); }
+        { return age < 0 || age >= life ? 0 : .96 * Smooth(age / FadeIn) * Smooth((life - age) / FadeOut); }
         internal static Rect Layout(int slot, Size photo, Size viewport, double x, double y, double sizeFactor, double age, double phase)
         {
             Rect region = regions[slot];
@@ -163,6 +173,9 @@ namespace MemoryDesktop
     {
         private readonly IPhotoEffect effect;
         private readonly BackgroundScene background = new BackgroundScene();
+        private PhotoDwell dwellPreset;
+        internal PhotoDwell DwellPreset
+        { get { return dwellPreset; } set { dwellPreset = value; effect.SetDwell(value); } }
         internal bool DreamyBackground
         { get { return background.Dreamy; } set { background.Dreamy = value; InvalidateVisual(); if (FrameInvalidated != null) FrameInvalidated(); } }
         internal double Time { get; private set; }

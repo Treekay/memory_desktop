@@ -32,7 +32,7 @@ namespace MemoryDesktop
         private CancellationTokenSource sourceCancellation = new CancellationTokenSource();
         private CancellationTokenSource scanCancellation = new CancellationTokenSource();
         private Forms.NotifyIcon tray;
-        private Forms.ToolStripMenuItem pauseItem, startupItem, folderItem, darkBackgroundItem, dreamyBackgroundItem;
+        private Forms.ToolStripMenuItem pauseItem, startupItem, folderItem, darkBackgroundItem, dreamyBackgroundItem, dwellMenu;
         private FileSystemWatcher watcher;
         private ShellMessages messages;
         private IntPtr host;
@@ -48,7 +48,7 @@ namespace MemoryDesktop
         public void Start()
         {
             settings = preview ? new AppSettings() : AppSettings.Load(AppSettings.DefaultPath);
-            if (!preview) Diagnostics.Log("Start version=" + System.Reflection.Assembly.GetExecutingAssembly().GetName().Version);
+            if (!preview) Diagnostics.Log("Start version=" + System.Reflection.Assembly.GetExecutingAssembly().GetName().Version + " dwellPreset=" + settings.DwellPreset);
             frames.Interval = TimeSpan.FromMilliseconds(1000.0 / 30);
             frames.Tick += Frame;
             maintenance.Interval = TimeSpan.FromSeconds(3);
@@ -99,6 +99,7 @@ namespace MemoryDesktop
             dreamyBackgroundItem = new Forms.ToolStripMenuItem("梦境星空", null, delegate { SetBackground(true); });
             backgroundMenu.DropDownItems.Add(darkBackgroundItem); backgroundMenu.DropDownItems.Add(dreamyBackgroundItem);
             menu.Items.Add(backgroundMenu);
+            dwellMenu = DwellOptions.CreateMenu(SetDwellPreset); menu.Items.Add(dwellMenu);
             menu.Items.Add(startupItem); menu.Items.Add(new Forms.ToolStripSeparator());
             menu.Items.Add("退出", null, delegate { app.Shutdown(); });
             menu.Opening += delegate { UpdateMenu(); };
@@ -111,6 +112,7 @@ namespace MemoryDesktop
             pauseItem.Text = settings.Paused ? "继续" : "暂停";
             pauseItem.Checked = settings.Paused;
             darkBackgroundItem.Checked = !settings.DreamyBackground; dreamyBackgroundItem.Checked = settings.DreamyBackground;
+            DwellOptions.UpdateChecks(dwellMenu, settings.DwellPreset);
             try { startupItem.Checked = LoginStartup.IsEnabled(); } catch { startupItem.Checked = settings.StartAtLogin; }
             folderItem.ToolTipText = settings.PhotoFolder ?? "尚未选择文件夹";
             tray.Text = settings.Paused ? "Memory Desktop · 已暂停" : "Memory Desktop";
@@ -119,6 +121,8 @@ namespace MemoryDesktop
         { if (preview) return; try { settings.Save(AppSettings.DefaultPath); } catch (Exception e) { ShowError("无法保存本地设置。", e); } }
         private void SetBackground(bool dreamy)
         { settings.DreamyBackground = dreamy; foreach (var window in windows) window.Surface.DreamyBackground = dreamy; SaveSettings(); UpdateMenu(); }
+        private void SetDwellPreset(PhotoDwell preset)
+        { settings.DwellPreset = preset; foreach (var window in windows) window.Surface.DwellPreset = preset; SaveSettings(); UpdateMenu(); }
         private void PickFolder()
         {
             using (var dialog = new Forms.FolderBrowserDialog { Description = "选择本地照片文件夹（只读取该文件夹，不包含子文件夹）", ShowNewFolderButton = false })
@@ -204,6 +208,7 @@ namespace MemoryDesktop
                     var window = new WallpaperWindow(display, preview, Environment.TickCount + windows.Count * 179, !preview && NativeDesktop.ClassName(host) == "Progman", host);
                     window.Surface.PhotoRequested += RequestPhoto;
                     window.Surface.DreamyBackground = settings.DreamyBackground;
+                    window.Surface.DwellPreset = settings.DwellPreset;
                     windows.Add(window);
                     if (preview) window.Closed += delegate { if (!disposed) app.Shutdown(); };
                     window.Show();

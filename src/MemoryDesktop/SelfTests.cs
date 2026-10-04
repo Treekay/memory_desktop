@@ -67,7 +67,7 @@ namespace MemoryDesktop
                 try { PhotoSource.Scan(Path.Combine(output, "missing"), CancellationToken.None, 1); } catch (DirectoryNotFoundException) { missing = true; }
                 Check(missing, "missing folder reported without discovery elsewhere");
                 Check(MemoryEffect.Opacity(0) == 0 && MemoryEffect.Opacity(MemoryEffect.Lifetime) == 0 && MemoryEffect.Opacity(8) > .95, "slow fade envelope endpoints and peak");
-                Check(MemoryEffect.Opacity(2.8, 18) > .95 && MemoryEffect.Opacity(14.2, 18) > .95 && MemoryEffect.Lifetime == 18, "accepted fade durations preserved while fully-visible dwell is shortened");
+                Check(MemoryEffect.Opacity(2.8, 12.6) > .95 && MemoryEffect.Opacity(8.8, 12.6) > .95 && MemoryEffect.FadeIn == 2.8 && MemoryEffect.FadeOut == 3.8, "accepted fade durations preserved with six-second dwell");
                 double maxStep = 0;
                 for (double t = .1; t <= MemoryEffect.Lifetime; t += .1) maxStep = Math.Max(maxStep, Math.Abs(MemoryEffect.Opacity(t) - MemoryEffect.Opacity(t - .1)));
                 Check(maxStep < .053, "gentle shorter fade continuity at 100ms steps");
@@ -89,10 +89,10 @@ namespace MemoryDesktop
                 Check(effect.ActiveCount == 1 && !effect.NeedsPhoto(6), "startup arrivals stagger rather than form a batch");
                 effect.Add(photo, 10);
                 double[] expiry = effect.ExpiryTimes;
-                Check(effect.ActiveCount == 2 && Math.Abs(expiry[1] - expiry[0]) >= 6, "each photo owns a distinct independent expiry with interleaved turnover");
+                Check(effect.ActiveCount == 2 && Math.Abs(expiry[1] - expiry[0]) >= 4 - .000001, "each photo owns a distinct independent expiry with interleaved turnover");
                 bool continuous = true; int turnovers = 0; double shortestLife = Double.MaxValue, longestLife = 0;
                 for (int t = 28; t < 600; t++)
-                { if (effect.NeedsPhoto(t)) { effect.Add(photo, t); turnovers++; double life = effect.ExpiryTimes[effect.ActiveCount - 1] - t; shortestLife = Math.Min(shortestLife, life); longestLife = Math.Max(longestLife, life); } continuous &= effect.ActiveCount >= 1; }
+                { if (effect.NeedsPhoto(t)) { effect.Add(photo, t); turnovers++; double life = effect.DwellTimes[effect.ActiveCount - 1] + MemoryEffect.FadeIn + MemoryEffect.FadeOut; shortestLife = Math.Min(shortestLife, life); longestLife = Math.Max(longestLife, life); } continuous &= effect.ActiveCount >= 1; }
                 results.Add(String.Format(System.Globalization.CultureInfo.InvariantCulture, "SCHEDULE observedLifeSeconds={0:F2}..{1:F2} observedDwellSeconds={2:F2}..{3:F2}", shortestLife, longestLife, shortestLife - 6.6, longestLife - 6.6));
                 Check(continuous && turnovers > 15, "interleaved turnover keeps other photos present over ten minutes");
                 bool separated = true;
@@ -120,12 +120,12 @@ namespace MemoryDesktop
                     effect.Clear(); effect.Add(preparedPhoto, 0); effect.Add(preparedPhoto, 10);
                     var benchmarkSky = new BackgroundScene { Dreamy = true };
                     graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
-                    benchmarkSky.DrawNative(graphics, new Size(2240, 1400), 13);
+                    benchmarkSky.DrawNative(graphics, new Size(2240, 1400), 12);
                     nativeFrame.Save(Path.Combine(output, "native-background.png"), System.Drawing.Imaging.ImageFormat.Png);
-                    effect.DrawNative(graphics, new Size(2240, 1400), 13);
+                    effect.DrawNative(graphics, new Size(2240, 1400), 12);
                     nativeFrame.Save(Path.Combine(output, "native-render.png"), System.Drawing.Imaging.ImageFormat.Png);
                     var benchmark = System.Diagnostics.Stopwatch.StartNew();
-                    for (int frameIndex = 0; frameIndex < 12; frameIndex++) { benchmarkSky.DrawNative(graphics, new Size(2240, 1400), 13); effect.DrawNative(graphics, new Size(2240, 1400), 13); }
+                    for (int frameIndex = 0; frameIndex < 12; frameIndex++) { benchmarkSky.DrawNative(graphics, new Size(2240, 1400), 12); effect.DrawNative(graphics, new Size(2240, 1400), 12); }
                     results.Add("NATIVE FRAME BENCHMARK avgMs=" + (benchmark.Elapsed.TotalMilliseconds / 12).ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
                     benchmarkSky.Dispose();
                 }
@@ -153,6 +153,45 @@ namespace MemoryDesktop
                 settings.Save(settingsPath); settings.PhotoFolder = empty; settings.Save(settingsPath);
                 var reloaded = AppSettings.Load(settingsPath);
                 Check(reloaded.PhotoFolder == empty && reloaded.Paused && !reloaded.StartAtLogin && reloaded.DreamyBackground, "atomic isolated settings roundtrip including background preference");
+                byte[] tinyPixels = { 128, 128, 128, 255, 128, 128, 128, 255, 128, 128, 128, 255, 128, 128, 128, 255 };
+                var tiny = BitmapSource.Create(2, 2, 96, 96, PixelFormats.Pbgra32, null, tinyPixels, 8); tiny.Freeze();
+                foreach (var preset in DwellOptions.Presets)
+                {
+                    double minimum, maximum; DwellOptions.Bounds(preset, out minimum, out maximum);
+                    var timed = new MemoryEffect(21); timed.SetDwell(preset);
+                    bool dwellBounded = true, independent = true, visible = true; int arrivals = 0;
+                    for (double time = 0; time < 600; time += .25)
+                    {
+                        if (timed.NeedsPhoto(time)) { timed.Add(tiny, time); arrivals++; }
+                        foreach (double dwell in timed.DwellTimes) dwellBounded &= dwell >= minimum - .000001 && dwell <= maximum + .000001;
+                        double[] ends = timed.ExpiryTimes, births = timed.BirthTimes;
+                        if (ends.Length == 2) independent &= Math.Abs(ends[0] - ends[1]) >= 4 - .000001;
+                        int showing = 0; for (int i = 0; i < ends.Length; i++) if (time > births[i] && time < ends[i]) showing++;
+                        if (time > 15) visible &= showing > 0;
+                    }
+                    Check(dwellBounded, "advertised fully-visible dwell bounds remain exact for " + preset);
+                    Check(independent && visible && arrivals > 20, "independent continuous turnover without batch expiry for " + preset);
+                    settings.DwellPreset = preset; settings.Save(settingsPath);
+                    Check(AppSettings.Load(settingsPath).DwellPreset == preset, "dwell preset persists for " + preset);
+                    timed.Clear();
+                }
+                var menuEffect = new MemoryEffect(18); menuEffect.SetDwell(PhotoDwell.Long); menuEffect.Add(tiny, 0);
+                var menuSurface = new PhotoSurface(menuEffect); double existingExpiry = menuEffect.ExpiryTimes[0];
+                using (var dwellMenu = DwellOptions.CreateMenu(delegate(PhotoDwell selected) { menuSurface.DwellPreset = selected; settings.DwellPreset = selected; settings.Save(settingsPath); }))
+                {
+                    DwellOptions.UpdateChecks(dwellMenu, PhotoDwell.Long);
+                    ((System.Windows.Forms.ToolStripMenuItem)dwellMenu.DropDownItems[0]).PerformClick();
+                    Check(menuEffect.ExpiryTimes[0] == existingExpiry && menuSurface.Time == 0 && menuEffect.ActiveCount == 1, "tray dwell change preserves the current photo and clock without a pop or batch reset");
+                    bool checks = true;
+                    for (int i = 0; i < 3; i++) checks &= ((System.Windows.Forms.ToolStripMenuItem)dwellMenu.DropDownItems[i]).Checked == (i == 0);
+                    Check(checks && menuSurface.DwellPreset == PhotoDwell.Short && AppSettings.Load(settingsPath).DwellPreset == PhotoDwell.Short, "tray click applies and saves exactly one visibly checked preset");
+                    menuEffect.NeedsPhoto(existingExpiry + 1); menuEffect.Add(tiny, existingExpiry + 1);
+                    Check(menuEffect.DwellTimes[0] >= 6 && menuEffect.DwellTimes[0] <= 8, "changed tray preset applies to the next independent photo");
+                }
+                menuEffect.Clear();
+                File.WriteAllText(settingsPath, "<AppSettings><PhotoFolder>legacy-fixture</PhotoFolder><Paused>true</Paused><StartAtLogin>false</StartAtLogin><DreamyBackground>true</DreamyBackground></AppSettings>");
+                var legacy = AppSettings.Load(settingsPath);
+                Check(legacy.DwellPreset == PhotoDwell.Short && legacy.PhotoFolder == "legacy-fixture" && legacy.Paused && legacy.DreamyBackground && !legacy.StartAtLogin, "legacy settings gain short dwell while preserving existing preferences");
                 var sky = new BackgroundScene { Dreamy = true };
                 var skyVisual = new DrawingVisual();
                 using (var drawing = skyVisual.RenderOpen()) sky.Draw(drawing, new Size(320, 200), 20);
