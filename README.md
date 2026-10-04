@@ -1,65 +1,68 @@
 # Memory Desktop · 记忆浮光
 
-Windows 托盘式照片动态壁纸第一版。照片在深色留白中慢慢显现，轻微漂浮，然后与下一段记忆重叠消散。桌面模式是 Explorer 图标后方的原生子窗口，桌面图标仍可点击。没有主界面、账号、网络请求或照片上传。
+Windows 托盘式照片动态壁纸。照片在深色留白中轻柔出现、微微漂移、独立消散。每屏两张较大的照片，位置和大小有变化，互不重叠，各自交替切换。运行在 Explorer 桌面图标后方，无主界面、账号、网络请求或照片上传。
 
-## 运行
+## 使用
 
-1. 解压 `MemoryDesktop-win-x64.zip` 到长期保留的本地目录，双击 `MemoryDesktop.exe`。无需管理员权限。
-2. 在通知区域找到青绿色照片图标（可能在隐藏图标 `^` 内），右键 → **选择照片文件夹…**。第一次启动不读取照片、不显示主窗口，直到你选择文件夹。
-3. 右键菜单提供 **暂停 / 继续**、**登录 Windows 时启动**、**退出**。登录启动默认关闭，只在你点击该项时修改当前用户的启动项。
-4. 退出后原有 Windows 壁纸仍在；程序不修改 Windows 的静态壁纸设置。删除程序前先取消登录启动。
+1. 解压 `MemoryDesktop-win-x64.zip` 到长期保留的本地目录，双击 `MemoryDesktop.exe`，无需管理员权限。
+2. 右键通知区域的青绿色照片图标（可能在 `^` 内），选择 **选择照片文件夹…**。首次启动等待你选定目录，不扫描其他个人文件夹。
+3. 菜单提供 **暂停 / 继续**、**背景 → 深色留白 / 梦境星空**、**登录 Windows 时启动**、**退出**。
+4. 登录启动默认关闭，只有点击该菜单项才修改当前用户启动项。退出后原 Windows 壁纸仍在；删除或移动程序前先取消登录启动。
 
-支持 JPG/JPEG、PNG、BMP、GIF、TIF/TIFF；GIF/TIFF 只使用第一帧。仅读取选定文件夹的直接文件，不含子目录。HEIC、RAW、视频暂不支持。不同宽高比完整缩放呈现，不做强制裁切。空文件夹会等待新增照片；损坏或过大的文件会跳过。文件夹消失时已有照片逐渐结束，可重新选择文件夹；移动盘恢复会在后台重试。
+梦境星空使用程序生成的稀疏星点、淡淡银河雾光和缓慢极光漂移。背景选择保存在本机，随照片一起暂停，可随时切回原背景。照片始终是视觉主体。
 
-## 行为与资源边界
+支持 JPG/JPEG、PNG、BMP、GIF、TIF/TIFF；GIF/TIFF 只使用第一帧。只读取所选目录的直接文件，不递归。HEIC、RAW、视频暂不支持。照片完整保留宽高比，不强制裁切。损坏、过大图片会跳过；空目录等待新增照片，移动盘恢复后后台重试。
 
-- 每张照片约 46 秒，12 秒显现、末段 14 秒消散；约每 18 秒出现下一张，最多同时三张。位移约 12 像素以内，缩放增量约 1.5%，保留大量留白。
-- 每个屏幕独立构图；最多 8 个屏幕。所有屏幕共用一个解码队列，单张最长边最多 1600 像素，编码文件最多 64 MiB，原始像素最多 1.2 亿且任一边不超过 30000。
-- 不缓存整个相册；最多保存 4096 个路径，大型文件夹用随机蓄水池取样。每个屏幕最多 3 张冻结位图，单个解码在途；不同编码器还可能使用短暂的内部解码内存。超大相册的第一次枚举仍需时间，但在后台进行。
-- 解码后关闭文件流，允许图片移动、删除。切换文件夹会取消旧来源、丢弃迟到的解码结果，并清空旧照片；读取新文件夹失败则保留原来源。
-- 正常约 30 FPS；手动暂停、锁屏、睡眠或前台窗口覆盖整屏时冻结时间线并降低调度频率。退出释放窗口、托盘、文件监视器。文件变动去抖 2 秒，另每约 2 分钟重新检查所选文件夹。
-- 设置位于 `%LOCALAPPDATA%\MemoryDesktop\settings.xml`，包含本地路径和暂停/登录启动偏好。启动项位于当前用户 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\MemoryDesktop`；启动时只读取，不主动创建、修复或开启它。
+## 动画与资源
 
-## 兼容性与桌面宿主限制
+- 每张通常约 18–24 秒，保留约 2.8 秒淡入、3.8 秒淡出，中间清晰停留通常约 11–17 秒；避免两张同期消失时会略延长。两张各有出现与到期时间，初始错开约 7–9 秒，不整批替换，到期点保留至少约 6 秒间隔。
+- 每屏两块宽敞的构图区域，随机位置和比例；区域包含漂移的完整边界和留白间隔，直到照片完全消失才释放。轻微漂移约 12 像素以内，固定采样尺寸避免缩放闪烁。
+- 桌面照片按显示器物理像素直接绘制，不再通过 960 像素中间画布放大。图片只在到达时缩放一次，逐帧用 Windows 原生 AlphaBlend 合成；只有外缘羽化，中央不加模糊。源图本身分辨率低时仍受其限制。
+- 目标 30 FPS，实际取决于显示器数量、分辨率及系统负载。背景纹理缓存；极光只在实际位置或透明度变化时更新。暂停、锁屏、睡眠或被前台全屏窗口覆盖时冻结时间线，降低调度。
+- 最多 8 屏，各自构图，共用一个解码队列。源图最长边最多 1600 像素、文件最多 64 MiB、源像素最多 1.2 亿且任意边不超过 30000。每屏只保留两张活动照片及本屏绘制缓冲，内存随屏幕物理面积增加，不缓存整个相册。
+- 最多存储 4096 个文件路径，大目录随机蓄水池取样。解码后释放文件句柄。切换目录取消旧任务，拒绝迟到的解码结果；新目录读取失败则保留原来源。文件监视去抖约 2 秒，另约每 2 分钟重查所选目录。
+- 设置：`%LOCALAPPDATA%\MemoryDesktop\settings.xml`。启动项：`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\MemoryDesktop`，启动时只读，不自动创建或修复。
+- 有界诊断日志：`%LOCALAPPDATA%\MemoryDesktop\diagnostics.log`，记录计数、窗口几何和绘制耗时，不记录照片内容、文件名或目录路径。
 
-目标：Windows 10 / 11 x64，.NET Framework 4.8（常见 Windows 10/11 系统已包含；不使用 .NET SDK 作为运行依赖）。本次实际验证环境是 **Windows 11 25H2，内部版本 26200，.NET Framework Release 533509**。Windows 注册表可能仍把 ProductName 显示为 Windows 10，应以内部版本/DisplayVersion 区分。
+## 兼容性
 
-Explorer 的 `0x052C` 消息和 `WorkerW` 壁纸层是**未公开、非官方支持的宿主机制**。代码兼顾传统顶层 WorkerW 与 Windows 11 24H2 之后的 Progman 子层结构；Windows 更新、第三方桌面工具、远程桌面或不同 DPI 的跨进程重设可能影响挂载。挂载失败时不会退回覆盖桌面的顶层窗口，会提示并保留在托盘自动重试。
+目标 Windows 10 / 11 x64，运行依赖 .NET Framework 4.8。实际测试系统为 **Windows 11 25H2，内部版本 26200，Framework Release 533509**；不能将 Windows 10 兼容目标当成已验证系统。
 
-每个显示器使用物理屏幕边界定位，清单声明 PerMonitorV2；支持负坐标显示器和屏幕布局变化时重建。Explorer 重启通过 TaskbarCreated 和宿主存活检查尝试恢复。混合 DPI、多屏热插拔、Explorer 重启和真实图标后方会话的完整人工验证仍需进行；本次开发只运行不会连接桌面的临时预览，未修改用户壁纸，未重启 Explorer，未写入登录启动。
+Explorer 的 `0x052C` 消息和 WorkerW 桌面挂载属于**未公开、非官方支持的机制**。传统桌面连接 WorkerW；新版 Windows 11 raised desktop 在 Progman 下创建分层子窗口，位于图标 DefView 后、系统壁纸 WorkerW 前。子窗口在创建时即指定桌面父窗口，避免重新挂载造成合成器不显示。失败时提示一次并后台重试，不显示覆盖桌面的顶层壁纸窗口。
 
-支持常见 JPEG/TIFF 的 EXIF 方向（旋转及镜像），并用带方向元数据的合成 JPEG 验证旋转。HDR/色彩管理、动态虚拟桌面差异、第三方 Shell 的适配暂未专项验证。前台覆盖判断是矩形近似；透明全屏窗口也会触发暂停。非常极端的图片在 Windows 内置编解码器内部仍可能产生临时内存峰值。
+清单声明 PerMonitorV2，每屏使用物理边界，支持负坐标；显示布局变化时重建。Explorer 重启通过 TaskbarCreated 与宿主存活检查尝试恢复。当前检查了 2240×1400、150% 主屏和位于负 Y 的 1920×1080、100% 副屏；主屏实际图标后方显示已观察。Windows 10、多屏热插拔、Explorer 重启、锁屏和睡眠恢复仍需专项验收。本次未重启 Explorer、未修改静态壁纸设置、未启用登录启动。
 
-## 开发和验证
+支持常见 JPEG/TIFF EXIF 旋转与镜像。HDR、动态虚拟桌面、第三方 Shell 和远程桌面未专项验证；全屏覆盖判断采用矩形近似，透明全屏也可能暂停。极端图片的 Windows 编解码器仍可能产生临时内存峰值。
 
-使用 Windows 内置 .NET Framework C# 编译器，不需要 NuGet 或外部依赖：
+## 构建与验证
+
+无需 NuGet 或新 SDK，使用 Windows 内置 Framework C# 编译器：
 
 ```powershell
 ./build.ps1 -Test
 ```
 
-输出：`artifacts/MemoryDesktop-win-x64/MemoryDesktop.exe` 和对应 ZIP。也提供 `src/MemoryDesktop/MemoryDesktop.csproj`，安装 .NET Framework 4.8 开发目标包的 Visual Studio/MSBuild 可打开；本环境没有安装开发目标包，因此实际构建由 `build.ps1` 引用已安装运行时程序集完成。代码保持 C# 5 兼容。
+输出 `artifacts/MemoryDesktop-win-x64/MemoryDesktop.exe` 与同名 ZIP。运行中更新时先右键退出，也可使用 `MemoryDesktop.exe --exit`。提供 `src/MemoryDesktop/MemoryDesktop.csproj` 供安装了 Framework 4.8 开发目标包的 Visual Studio/MSBuild 使用；当前实际构建由脚本引用系统已安装的运行时程序集完成，代码保持 C# 5 兼容。
 
-测试使用程序生成的合成风景图，输出到忽略的 `test-results/`。涵盖损坏/空/缺失来源、取消、非递归选择、随机循环、解码上限、文件句柄释放、暂停、淡入淡出连续性、宽高比、三张上限和隔离设置持久化。测试不写启动项、不发送 Explorer 创建宿主消息。
+合成图测试与截图均在被 Git 忽略的 `test-results/`，个人照片和截图不提交。测试覆盖来源边界、损坏图片、EXIF、文件句柄、取消、暂停、独立调度、运动不碰撞、清晰中心像素、背景切换、设置持久化；不写登录启动项，不调用 Explorer 创建宿主消息。
 
-非持久临时预览（会出现普通预览窗口，默认 40 秒后退出，不创建托盘、不保存设置、不挂载 Explorer）：
-
-```powershell
-./artifacts/MemoryDesktop-win-x64/MemoryDesktop.exe --preview ./test-results/fixtures --seconds 60 --capture ./test-results/preview
-```
-
-`--capture` 导出实际 WPF 渲染帧和资源计数；预览可通过关闭窗口提前结束。只读宿主诊断：
+临时预览（普通窗口，默认 40 秒自动退出，不保存设置或连接桌面）：
 
 ```powershell
-./artifacts/MemoryDesktop-win-x64/MemoryDesktop.exe --diagnose-host ./test-results/host-diagnostics.txt
+./artifacts/MemoryDesktop-win-x64/MemoryDesktop.exe --preview ./test-results/fixtures --seconds 60 --dreamy --capture ./test-results/preview
 ```
 
-### 模块
+只读诊断：
 
-`IPhotoEffect` / `MemoryEffect` 只管理照片构图与绘制；`PhotoSurface` 管理暂停时间线与请求；`PhotoSource` 负责有界扫描和解码；`NativeDesktop` 负责原生挂载；`WallpaperController` 负责托盘、切换、生命周期和后台恢复。以后新增效果可实现 `IPhotoEffect`，无需重写桌面宿主。多文件夹预设和其他平台不在本版本范围。
+```powershell
+./artifacts/MemoryDesktop-win-x64/MemoryDesktop.exe --diagnose-host report.txt
+./artifacts/MemoryDesktop-win-x64/MemoryDesktop.exe --diagnose-selected report.txt
+```
 
-### 手工验收（用户同意启动桌面会话后）
+第二项只检查用户已选目录并输出聚合数量。实际验证及未测项目见 `docs/VERIFICATION.md`。
 
-检查桌面图标点击、右键、Win+D；暂停/继续无时间跳跃；切换空/正常文件夹；新增/删除图片；退出恢复原背景；选择性开启/关闭登录启动。另在 Windows 10、多屏混合缩放、Explorer 重启、锁屏恢复和全屏应用环境验收。开发中不主动运行这些会改变桌面或启动项的操作。
+## 模块
 
-参考：[SetParent 官方说明](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent)（跨进程 DPI 注意事项）、[DPI 清单官方说明](https://learn.microsoft.com/en-us/windows/win32/hidpi/setting-the-default-dpi-awareness-for-a-process)。这些 API 文档并不保证 WorkerW 机制。
+`IPhotoEffect` / `MemoryEffect` 管理布局、独立生命周期和绘制；`PhotoSurface` 管理暂停时钟与请求；`BackgroundScene` 管理可切换背景；`PhotoSource` 管理有界扫描与解码；`NativeDesktop` 管理宿主；`DesktopPresenter` / `NativeImage` 管理原生呈现与缓冲释放；`WallpaperController` 管理托盘、来源切换及系统生命周期。临时预览保留 WPF 绘制，桌面逐帧采用原生 GDI。新效果可实现接口；多文件夹预设和其他平台不在本版范围。
+
+参考：[SetParent 文档](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent)、[DPI 清单文档](https://learn.microsoft.com/en-us/windows/win32/hidpi/setting-the-default-dpi-awareness-for-a-process)、[Lively 桌面宿主实现](https://github.com/lively-community/lively/blob/core-separation/src/Lively/Lively/Core/WinDesktopCore.cs)。视觉节奏参考 [React Bits Fade Content](https://reactbits.dev/animations/fade-content) 的无模糊透明度变化，以及 [Aurora](https://reactbits.dev/backgrounds/aurora) 的缓慢光流原则；未引入 React 或 WebGL 依赖。

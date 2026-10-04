@@ -13,6 +13,7 @@ namespace MemoryDesktop
         public string PhotoFolder { get; set; }
         public bool Paused { get; set; }
         public bool StartAtLogin { get; set; }
+        public bool DreamyBackground { get; set; }
         public static string DefaultPath { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MemoryDesktop", "settings.xml"); } }
 
         public static AppSettings Load(string path)

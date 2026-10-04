@@ -1,10 +1,10 @@
-param([switch]$Test)
+param([switch]$Test, [string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 $repo = $PSScriptRoot
 $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
 $compiler = Join-Path $framework 'csc.exe'
 if (!(Test-Path -LiteralPath $compiler)) { throw 'Requires the built-in .NET Framework 4.8 x64 compiler on Windows 10/11.' }
-$out = Join-Path $repo 'artifacts\MemoryDesktop-win-x64'
+$out = if ($OutputDirectory) { $OutputDirectory } else { Join-Path $repo 'artifacts\MemoryDesktop-win-x64' }
 New-Item -ItemType Directory -Path $out -Force | Out-Null
 $source = Join-Path $repo 'src\MemoryDesktop'
 $refs = @('System.dll','System.Core.dll','System.Xml.dll','System.Xaml.dll','System.Drawing.dll','System.Windows.Forms.dll') | ForEach-Object { '/reference:' + (Join-Path $framework $_) }
@@ -22,5 +22,5 @@ if ($Test) {
     $report = Get-Content -LiteralPath (Join-Path $testOut 'test-report.txt')
     Write-Output ('Tests passed: ' + ($report | Where-Object { $_ -like 'PASS:*' }).Count)
 }
-Compress-Archive -Path (Join-Path $out '*') -DestinationPath (Join-Path $repo 'artifacts\MemoryDesktop-win-x64.zip') -Force
+Compress-Archive -Path (Join-Path $out '*') -DestinationPath ($out.TrimEnd('\') + '.zip') -Force
 Write-Output ('Build: ' + (Join-Path $out 'MemoryDesktop.exe'))

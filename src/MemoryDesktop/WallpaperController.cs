@@ -32,12 +32,12 @@ namespace MemoryDesktop
         private CancellationTokenSource sourceCancellation = new CancellationTokenSource();
         private CancellationTokenSource scanCancellation = new CancellationTokenSource();
         private Forms.NotifyIcon tray;
-        private Forms.ToolStripMenuItem pauseItem, startupItem, folderItem;
+        private Forms.ToolStripMenuItem pauseItem, startupItem, folderItem, darkBackgroundItem, dreamyBackgroundItem;
         private FileSystemWatcher watcher;
         private ShellMessages messages;
         private IntPtr host;
         private int generation, scanRevision;
-        private bool disposed, sessionLocked, powerSuspended, hostErrorShown, noUsablePhotosShown;
+        private bool disposed, sessionLocked, powerSuspended, hostErrorShown, noUsablePhotosShown, creatingWindows;
         private double lastFrame, previewSeconds = 40, nextCapture = 4;
         private int captureIndex;
         private string captureDirectory;
@@ -48,6 +48,7 @@ namespace MemoryDesktop
         public void Start()
         {
             settings = preview ? new AppSettings() : AppSettings.Load(AppSettings.DefaultPath);
+            if (!preview) Diagnostics.Log("Start version=" + System.Reflection.Assembly.GetExecutingAssembly().GetName().Version);
             frames.Interval = TimeSpan.FromMilliseconds(1000.0 / 30);
             frames.Tick += Frame;
             maintenance.Interval = TimeSpan.FromSeconds(3);
@@ -60,6 +61,7 @@ namespace MemoryDesktop
                 {
                     if (args[i] == "--seconds" && i + 1 < args.Length) { double value; if (Double.TryParse(args[++i], out value)) previewSeconds = Math.Max(5, Math.Min(300, value)); }
                     else if (args[i] == "--capture" && i + 1 < args.Length) captureDirectory = args[++i];
+                    else if (args[i] == "--dreamy") settings.DreamyBackground = true;
                 }
                 if (captureDirectory != null) Directory.CreateDirectory(captureDirectory);
                 CreateWindows(); SelectFolder(args[1], true);
@@ -92,6 +94,11 @@ namespace MemoryDesktop
                 catch (Exception e) { ShowError("无法更改登录启动设置。", e); }
             };
             menu.Items.Add(folderItem); menu.Items.Add(pauseItem); menu.Items.Add(new Forms.ToolStripSeparator());
+            var backgroundMenu = new Forms.ToolStripMenuItem("背景");
+            darkBackgroundItem = new Forms.ToolStripMenuItem("深色留白", null, delegate { SetBackground(false); });
+            dreamyBackgroundItem = new Forms.ToolStripMenuItem("梦境星空", null, delegate { SetBackground(true); });
+            backgroundMenu.DropDownItems.Add(darkBackgroundItem); backgroundMenu.DropDownItems.Add(dreamyBackgroundItem);
+            menu.Items.Add(backgroundMenu);
             menu.Items.Add(startupItem); menu.Items.Add(new Forms.ToolStripSeparator());
             menu.Items.Add("退出", null, delegate { app.Shutdown(); });
             menu.Opening += delegate { UpdateMenu(); };
@@ -103,12 +110,15 @@ namespace MemoryDesktop
             if (tray == null) return;
             pauseItem.Text = settings.Paused ? "继续" : "暂停";
             pauseItem.Checked = settings.Paused;
+            darkBackgroundItem.Checked = !settings.DreamyBackground; dreamyBackgroundItem.Checked = settings.DreamyBackground;
             try { startupItem.Checked = LoginStartup.IsEnabled(); } catch { startupItem.Checked = settings.StartAtLogin; }
             folderItem.ToolTipText = settings.PhotoFolder ?? "尚未选择文件夹";
             tray.Text = settings.Paused ? "Memory Desktop · 已暂停" : "Memory Desktop";
         }
         private void SaveSettings()
         { if (preview) return; try { settings.Save(AppSettings.DefaultPath); } catch (Exception e) { ShowError("无法保存本地设置。", e); } }
+        private void SetBackground(bool dreamy)
+        { settings.DreamyBackground = dreamy; foreach (var window in windows) window.Surface.DreamyBackground = dreamy; SaveSettings(); UpdateMenu(); }
         private void PickFolder()
         {
             using (var dialog = new Forms.FolderBrowserDialog { Description = "选择本地照片文件夹（只读取该文件夹，不包含子文件夹）", ShowNewFolderButton = false })
@@ -129,6 +139,7 @@ namespace MemoryDesktop
                 if (disposed || revision != scanRevision) return;
                 sourceCancellation.Cancel(); sourceCancellation.Dispose(); sourceCancellation = new CancellationTokenSource();
                 generation++; source = selected;
+                if (!preview) Diagnostics.Log("Source selected count=" + selected.Count + " replacement=" + replace);
                 if (selected.Count > 0) noUsablePhotosShown = false;
                 settings.PhotoFolder = folder;
                 if (replace)
@@ -171,9 +182,14 @@ namespace MemoryDesktop
 
         private void CreateWindows()
         {
+            if (creatingWindows) return;
+            creatingWindows = true;
+            try
+            {
             if (!preview)
             {
                 host = NativeDesktop.FindHost(true);
+                Diagnostics.Log("CreateWindows host=" + NativeDesktop.Describe(host));
                 if (!NativeDesktop.IsExplorerHost(host))
                 {
                     if (!hostErrorShown) { hostErrorShown = true; ShowError("找不到图标后方的 Explorer 壁纸宿主。程序保留在托盘并自动重试；不会显示覆盖桌面的窗口。", null); }
@@ -185,16 +201,20 @@ namespace MemoryDesktop
             {
                 foreach (var display in displays)
                 {
-                    var window = new WallpaperWindow(display, preview, Environment.TickCount + windows.Count * 179);
+                    var window = new WallpaperWindow(display, preview, Environment.TickCount + windows.Count * 179, !preview && NativeDesktop.ClassName(host) == "Progman", host);
                     window.Surface.PhotoRequested += RequestPhoto;
+                    window.Surface.DreamyBackground = settings.DreamyBackground;
                     windows.Add(window);
                     if (preview) window.Closed += delegate { if (!disposed) app.Shutdown(); };
                     window.Show();
                     if (!preview) NativeDesktop.Attach(window.Handle, host, display.Bounds);
+                    if (!preview) Diagnostics.Log("Attached display=" + display.Bounds + " window=" + NativeDesktop.Describe(window.Handle));
                 }
                 hostErrorShown = false;
             }
-            catch (Exception e) { CloseWindows(); ShowError("无法创建桌面壁纸。", e); }
+            catch (Exception e) { CloseWindows(); if (!hostErrorShown) { hostErrorShown = true; ShowError("无法创建桌面壁纸。", e); } }
+            }
+            finally { creatingWindows = false; }
         }
         private async void RequestPhoto(PhotoSurface surface)
         {
@@ -207,12 +227,13 @@ namespace MemoryDesktop
                 if (selected != null)
                 {
                     await decoder.WaitAsync(cancellation);
-                    try { image = await Task.Run(() => selected.Next(cancellation)); }
+                    try { image = await Task.Run(() => surface.Prepare(selected.Next(cancellation))); }
                     finally { decoder.Release(); }
                 }
                 if (!disposed && requestGeneration == generation && requestSerial == surface.RequestSerial && windows.Any(window => window.Surface == surface))
                 {
                     surface.Deliver(image);
+                    if (!preview) Diagnostics.Log("Delivered generation=" + generation + " decoded=" + (image != null) + " photoPixels=" + (image == null ? "none" : image.PixelWidth + "x" + image.PixelHeight));
                     if (image == null && selected != null && selected.Count == 0 && !preview && !noUsablePhotosShown)
                     {
                         noUsablePhotosShown = true;
@@ -237,6 +258,8 @@ namespace MemoryDesktop
             double now = elapsed.Elapsed.TotalSeconds, delta = now - lastFrame; lastFrame = now;
             foreach (var window in windows)
             { window.Surface.Suspended = settings.Paused || sessionLocked || powerSuspended || (!preview && NativeDesktop.IsCovered(window.Display)); window.Surface.Tick(delta); }
+            if (!preview && windows.Any(window => !window.Surface.Suspended))
+                frames.Interval = TimeSpan.FromMilliseconds(delta > .5 ? 1000.0 / 30 : Math.Max(1, Math.Min(1000.0 / 30, frames.Interval.TotalMilliseconds + 1000.0 / 30 - delta * 1000)));
             if (preview)
             {
                 if (captureDirectory != null && previewElapsed.Elapsed.TotalSeconds >= nextCapture)
@@ -260,6 +283,8 @@ namespace MemoryDesktop
         private void Maintain(object sender, EventArgs e)
         {
             if (preview || disposed) return;
+            if (maintenanceCount % 5 == 0)
+                foreach (var window in windows) Diagnostics.Log("State time=" + window.Surface.Time.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " fragments=" + window.Surface.ActiveCount + " suspended=" + window.Surface.Suspended + " pending=" + window.Surface.RequestPending + " window=" + NativeDesktop.Describe(window.Handle) + " " + window.PaintMetrics);
             bool active = !settings.Paused && !sessionLocked && !powerSuspended && windows.Any(window => !NativeDesktop.IsCovered(window.Display));
             frames.Interval = TimeSpan.FromMilliseconds(active ? 1000.0 / 30 : 1000);
             if (source != null && source.Count > 0 && (!NativeDesktop.IsExplorerHost(host) || windows.Count == 0 || windows.Any(window => !NativeDesktop.IsWindow(window.Handle))))
@@ -281,10 +306,14 @@ namespace MemoryDesktop
             windows.Clear();
         }
         private void ShowError(string message, Exception error)
-        { MessageBox.Show(message + (error == null ? "" : "\n" + error.Message), "Memory Desktop", MessageBoxButton.OK, MessageBoxImage.Warning); }
+        {
+            if (!preview) Diagnostics.Log("Error type=" + (error == null ? "HostUnavailable" : error.GetType().Name) + " hresult=" + (error == null ? 0 : error.HResult));
+            MessageBox.Show(message + (error == null ? "" : "\n" + error.Message), "Memory Desktop", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
         public void Dispose()
         {
             if (disposed) return; disposed = true;
+            if (!preview) Diagnostics.Log("Exit requested; releasing wallpaper windows and tray.");
             frames.Stop(); maintenance.Stop(); rescanTimer.Stop();
             sourceCancellation.Cancel(); scanCancellation.Cancel();
             sourceCancellation.Dispose(); scanCancellation.Dispose();
