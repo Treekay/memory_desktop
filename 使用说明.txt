@@ -1,0 +1,14 @@
+Memory Desktop · 记忆浮光（Windows x64）
+
+1. 把整个压缩包解压到固定目录，双击 MemoryDesktop.exe。
+2. 在右下角托盘（也可能在 ^ 隐藏图标里）右键青绿色照片图标。
+3. 点击“选择照片文件夹…”，选择你自己的本地照片目录。
+4. 可右键“暂停 / 继续”，也可“退出”。没有主界面。
+5. “登录 Windows 时启动”默认关闭，需要时由你勾选；移动/删除程序前先取消。
+
+只读取所选目录，不读子目录，不上传照片。支持 JPG、PNG、BMP、GIF、TIFF；后两种只取第一帧。HEIC/RAW 暂不支持。
+程序不改 Windows 静态壁纸设置，退出后原壁纸仍在。
+设置保存在 %LOCALAPPDATA%\MemoryDesktop\settings.xml。
+
+需要 Windows 10/11 x64 和 .NET Framework 4.8。实际验证：Windows 11 25H2 / 26200；Windows 10 尚待实机验证。
+动态壁纸使用 Explorer 未公开的 WorkerW 层；系统更新或第三方桌面工具可能影响兼容。完整限制见 README.md。

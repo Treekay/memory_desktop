@@ -1,0 +1,9 @@
+bin/
+obj/
+artifacts/
+*.user
+*.suo
+.vs/
+test-results/
+settings.xml
+photos/
