@@ -12,14 +12,15 @@ namespace MemoryDesktop
             var area=new Rect(Base.X*viewport.Width,Base.Y*viewport.Height,Base.Width*viewport.Width,Base.Height*viewport.Height);
             double scale=Math.Min(area.Width/photo.Width,area.Height/photo.Height);
             double width=photo.Width*scale,height=photo.Height*scale;
-            double dx=Math.Sin(age/36+phase)*Math.Min(12,viewport.Width*.008);
-            double dy=Math.Cos(age/42+phase)*Math.Min(9,viewport.Height*.008);
-            return new Rect(area.X+(area.Width-width)/2+dx,area.Y+(area.Height-height)/2+dy,width,height);
+            // Age and phase intentionally do not affect geometry: a photo stays
+            // fixed throughout fade-in, dwell and fade-out. Keep the call contract
+            // and random sequence so only spatial drift changes in this release.
+            return new Rect(area.X+(area.Width-width)/2,area.Y+(area.Height-height)/2,width,height);
         }
     }
     internal static class PhotoLayout
     {
-        // Includes maximum normalized drift (.008), rounding and a visible gap.
+        // Preserve the existing spacing, including rounding and a visible gap.
         internal const double Margin=.018;
         internal const double ReadableEdge=.38;
         private static readonly Rect Bounds=new Rect(.025,.025,.95,.95);

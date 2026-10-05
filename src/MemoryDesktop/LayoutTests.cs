@@ -23,7 +23,8 @@ namespace MemoryDesktop
             {
                 var effect = new MemoryEffect(37); effect.SetViewport(size);
                 var rng = new Random(42); var histogram = new int[5]; var bins = new int[9]; var targets = new HashSet<int>();
-                bool safe=true, readable=true, timing=true; int added=0;
+                bool safe=true, readable=true, timing=true, stationary=true; int added=0;
+                var originalFrames=new Dictionary<double,Rect>();
                 for (double t=0; t<600; t+=.25)
                 {
                     if (effect.NeedsPhoto(t) && effect.Add(images[rng.Next(images.Count)],t))
@@ -36,7 +37,11 @@ namespace MemoryDesktop
                     int showing=0;
                     for (int i=0;i<frames.Length;i++)
                     {
-                        var frame=frames[i]; var normalized=new Rect(frame.X/size.Width,frame.Y/size.Height,frame.Width/size.Width,frame.Height/size.Height);
+                        var frame=frames[i];
+                        Rect originalFrame;
+                        if(originalFrames.TryGetValue(births[i],out originalFrame)) stationary &= frame.Equals(originalFrame);
+                        else originalFrames.Add(births[i],frame);
+                        var normalized=new Rect(frame.X/size.Width,frame.Y/size.Height,frame.Width/size.Width,frame.Height/size.Height);
                         safe &= new Rect(0,0,1,1).Contains(reserves[i]) && reserves[i].Contains(normalized);
                         readable &= Math.Max(frame.Width,frame.Height)>=Math.Min(size.Width,size.Height)*.38-.01;
                         if (t>births[i] && t<ends[i]) showing++;
@@ -46,7 +51,8 @@ namespace MemoryDesktop
                     foreach(double dwell in effect.DwellTimes) timing &= dwell>=6-.000001 && dwell<=8+.000001;
                 }
                 int occupiedBins=0; foreach(int count in bins) if(count>0) occupiedBins++;
-                check(safe && effect.ActiveCount<=4,"swept reservations prevent collisions through all fades and drift at "+size);
+                check(safe && effect.ActiveCount<=4,"reservations prevent collisions throughout all fades at "+size);
+                check(stationary,"photo position and size stay fixed for each entire lifetime at "+size);
                 check(readable && added>35,"readable photo scale and continuing arrivals at "+size);
                 check(timing && targets.Count==3,"independent expiry, exact dwell, varied count targets at "+size);
                 check(occupiedBins>=5,"organic placement reaches at least five screen regions at "+size);

@@ -76,6 +76,8 @@ namespace MemoryDesktop
                     PhotoPlacement placement;
                     bool placed = PhotoLayout.TryPlace(dimensions, new Size(1920, 1080), new Rect[0], new Random(19), out placement);
                     Rect fit = placement.Frame(dimensions, new Size(1920, 1080), 20, 1);
+                    foreach(double age in new[]{-1.0,0,1.4,2.8,5.0,10.0,18.0,23.6,60.0})
+                        Check(placement.Frame(dimensions,new Size(1920,1080),age,age*.7).Equals(fit), "photo frame is independent of age and phase: "+dimensions+" at "+age);
                     Check(placed && Math.Abs(fit.Width / fit.Height - dimensions.Width / dimensions.Height) < .0001 && fit.Width < 940 && fit.Height < 770, "aspect ratio and negative space " + dimensions);
                 }
                 var photo = source.Next(CancellationToken.None); var effect = new MemoryEffect(7);
