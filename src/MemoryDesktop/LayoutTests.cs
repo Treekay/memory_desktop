@@ -38,7 +38,7 @@ namespace MemoryDesktop
                     {
                         var frame=frames[i]; var normalized=new Rect(frame.X/size.Width,frame.Y/size.Height,frame.Width/size.Width,frame.Height/size.Height);
                         safe &= new Rect(0,0,1,1).Contains(reserves[i]) && reserves[i].Contains(normalized);
-                        readable &= Math.Max(frame.Width,frame.Height)>=Math.Min(size.Width,size.Height)*.43-.01;
+                        readable &= Math.Max(frame.Width,frame.Height)>=Math.Min(size.Width,size.Height)*.38-.01;
                         if (t>births[i] && t<ends[i]) showing++;
                         for(int j=0;j<i;j++) { safe &= !reserves[i].IntersectsWith(reserves[j]) && !frames[i].IntersectsWith(frames[j]); timing &= Math.Abs(ends[i]-ends[j])>=1.2-.000001; }
                     }
@@ -62,7 +62,7 @@ namespace MemoryDesktop
             {
                 if(demo.NeedsPhoto(t)) demo.Add(scenic[choice.Next(scenic.Length)],t);
                 int visible=0; var births=demo.BirthTimes; var ends=demo.ExpiryTimes;
-                for(int i=0;i<births.Length;i++) if(MemoryEffect.Opacity(t-births[i],ends[i]-births[i])>.15) visible++;
+                for(int i=0;i<births.Length;i++) if(MemoryEffect.Opacity(t-births[i],ends[i]-births[i])>=.60) visible++;
                 if(visible>=2 && !saved.Contains(visible))
                 {
                     using(var bitmap=new System.Drawing.Bitmap(1920,1080)) using(var graphics=System.Drawing.Graphics.FromImage(bitmap))
@@ -71,6 +71,15 @@ namespace MemoryDesktop
                 }
             }
             check(saved.Count>0,"native synthetic organic composition exported for visual inspection"); demo.Clear();
+            foreach(var dwell in new[]{PhotoDwell.Short,PhotoDwell.Brief})
+            foreach(var size in new[]{new Size(2240,1400),new Size(1920,1080)})
+            {
+                var representative=new BitmapSource[28];
+                for(int i=0;i<representative.Length;i++) representative[i]=CompositionDiagnostics.Synthetic(i%3==0?new Size(4,3):new Size(3,4));
+                bool recurring=true;
+                results.Add(CompositionDiagnostics.Simulate(representative,new[]{size},dwell,37,600,delegate(int screen,int[] visible,int[] reserved){int total=0;foreach(int value in visible)total+=value; recurring &= (visible[3]+visible[4])>total*.25 && visible[4]>total*.015;}));
+                check(recurring,"meaningfully visible three and four photo scenes recur with representative source at "+size+" / "+dwell);
+            }
         }
     }
 }

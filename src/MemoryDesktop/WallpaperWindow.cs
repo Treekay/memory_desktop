@@ -52,7 +52,10 @@ namespace MemoryDesktop
         private long paintedFrames;
         private long lastFrameKey = Int64.MinValue;
         private double totalPaintMilliseconds, maximumPaintMilliseconds;
-        internal string Metrics { get { return String.Format(System.Globalization.CultureInfo.InvariantCulture, "paintFrames={0} avgPaintMs={1:F2} maxPaintMs={2:F2}", paintedFrames, totalPaintMilliseconds / Math.Max(1, paintedFrames), maximumPaintMilliseconds); } }
+        private readonly double[] visibleSeconds=new double[5];
+        private double lastPaintTime,threeRunStart,fourRunStart,longestThree,longestFour;
+        private int lastVisibleCount,threeScenes,fourScenes;
+        internal string Metrics { get { return String.Format(System.Globalization.CultureInfo.InvariantCulture, "paintFrames={0} avgPaintMs={1:F2} maxPaintMs={2:F2} clearOpacity=0.60 visibleSeconds0..4={3} threeScenes={4} fourScenes={5} longestThreeSeconds={6:F1} longestFourSeconds={7:F1}", paintedFrames, totalPaintMilliseconds / Math.Max(1, paintedFrames), maximumPaintMilliseconds,String.Join(",",Array.ConvertAll(visibleSeconds,value=>value.ToString("F1",System.Globalization.CultureInfo.InvariantCulture))),threeScenes,fourScenes,longestThree,longestFour); } }
         internal DesktopPresenter(PhotoSurface photoSurface, System.Drawing.Size displaySize, bool useLayered, IntPtr host)
         {
             surface = photoSurface; layered = useLayered; desktopHost = host;
@@ -94,6 +97,14 @@ namespace MemoryDesktop
             e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
             e.Graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
             surface.DrawNative(e.Graphics, ClientSize.Width, ClientSize.Height);
+            if(surface.Time<lastPaintTime) {Array.Clear(visibleSeconds,0,visibleSeconds.Length);lastPaintTime=surface.Time;lastVisibleCount=0;threeRunStart=surface.Time;fourRunStart=surface.Time;threeScenes=0;fourScenes=0;longestThree=0;longestFour=0;}
+            double interval=Math.Max(0,surface.Time-lastPaintTime); visibleSeconds[lastVisibleCount]+=interval;
+            int count=surface.VisibleCount;
+            if(count>=3 && lastVisibleCount<3) threeScenes++;
+            if(count==4 && lastVisibleCount<4) fourScenes++;
+            if(count>=3){if(lastVisibleCount<3) threeRunStart=surface.Time;longestThree=Math.Max(longestThree,surface.Time-threeRunStart);}
+            if(count==4){if(lastVisibleCount!=4) fourRunStart=surface.Time;longestFour=Math.Max(longestFour,surface.Time-fourRunStart);}
+            lastPaintTime=surface.Time;lastVisibleCount=count;
             double paintMilliseconds = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             paintedFrames++; totalPaintMilliseconds += paintMilliseconds; maximumPaintMilliseconds = Math.Max(maximumPaintMilliseconds, paintMilliseconds);
         }

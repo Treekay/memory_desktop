@@ -16,8 +16,10 @@ namespace MemoryDesktop
         long NativeFrameKey(Size size, double time);
         void SetDwell(PhotoDwell preset);
         void SetViewport(Size size);
+        void SetLoadLead(double seconds);
         void Clear();
         int ActiveCount { get; }
+        int VisibleCount(double time,double threshold);
     }
 
     internal sealed class MemoryEffect : IPhotoEffect
@@ -33,11 +35,14 @@ namespace MemoryDesktop
         private int targetCount;
         private Size viewport = new Size(1920, 1080);
         private PhotoDwell dwellPreset;
+        private double loadLead;
         public int ActiveCount { get { return fragments.Count; } }
+        public int VisibleCount(double time,double threshold) { return fragments.FindAll(fragment=>Opacity(time-fragment.Birth,fragment.Life)>=threshold).Count; }
         internal double[] ExpiryTimes { get { return fragments.ConvertAll(fragment => fragment.Birth + fragment.Life).ToArray(); } }
         internal double[] BirthTimes { get { return fragments.ConvertAll(fragment => fragment.Birth).ToArray(); } }
         internal double[] DwellTimes { get { return fragments.ConvertAll(fragment => fragment.Life - FadeIn - FadeOut).ToArray(); } }
         public void SetDwell(PhotoDwell preset) { dwellPreset = preset; }
+        public void SetLoadLead(double seconds) { loadLead=Math.Max(0,Math.Min(1.2,seconds)); }
         public void SetViewport(Size size) { if (size.Width > 0 && size.Height > 0) viewport = size; }
         internal Rect[] Reservations { get { return fragments.ConvertAll(fragment => fragment.Placement.Reservation).ToArray(); } }
         internal Rect[] FrameRects(double time) { return fragments.ConvertAll(fragment => fragment.Placement.Frame(new Size(fragment.Photo.PixelWidth, fragment.Photo.PixelHeight), viewport, time - fragment.Birth, fragment.Phase)).ToArray(); }
@@ -52,7 +57,7 @@ namespace MemoryDesktop
         public bool NeedsPhoto(double time)
         {
             RemoveExpired(time);
-            if (time >= nextTargetChange) { targetCount = 2 + random.Next(3); nextTargetChange = time + 18 + random.NextDouble() * 16; }
+            if (time >= nextTargetChange) { targetCount = ChooseTarget(); nextTargetChange = time + 26 + random.NextDouble() * 18; }
             bool keepVisible = fragments.Count == 1 && fragments[0].Birth + fragments[0].Life - time < FadeIn + 2;
             return fragments.Count < targetCount && fragments.Count < 4 && (time >= nextArrival || (keepVisible && time - lastAttempt >= 2));
         }
@@ -68,7 +73,7 @@ namespace MemoryDesktop
             lastAttempt = time;
             if (photo == null) { nextArrival = time + 2; return false; }
             PhotoPlacement placement;
-            if (!PhotoLayout.TryPlace(new Size(photo.PixelWidth, photo.PixelHeight), viewport, Reservations, random, out placement))
+            if (!PhotoLayout.TryPlace(new Size(photo.PixelWidth, photo.PixelHeight), viewport, Reservations, random, targetCount, out placement))
             { nextArrival = time + 2 + random.NextDouble() * 2; return false; }
             double minimum, maximum; DwellOptions.Bounds(dwellPreset, out minimum, out maximum);
             double life = FadeIn + minimum + random.NextDouble() * (maximum - minimum) + FadeOut;
@@ -83,11 +88,13 @@ namespace MemoryDesktop
             fragments.Add(new Fragment { Photo = photo, NativePhoto = NativeBitmap.FromSource(photo), Lease = lease, Placement = placement, Birth = birth, Life = life, Phase = random.NextDouble() * Math.PI * 2 });
             // Each occupied region owns its expiry and its next arrival. There is
             // no global batch replacement or common fade clock.
-            nextArrival = time + 2.8 + random.NextDouble() * 2.2;
+            double interval=targetCount>=3 ? (dwellPreset==PhotoDwell.Brief ? 1.25+random.NextDouble()*.45 : 1.4+random.NextDouble()*.65) : 2.7+random.NextDouble()*1.6;
+            nextArrival = time + Math.Max(.35,interval-loadLead);
             return true;
         }
         private void ResetSchedule()
-        { nextArrival = 0; lastAttempt = Double.NegativeInfinity; targetCount = 2 + random.Next(3); nextTargetChange = 18 + random.NextDouble() * 16; }
+        { nextArrival = 0; lastAttempt = Double.NegativeInfinity; targetCount = ChooseTarget(); nextTargetChange = 26 + random.NextDouble() * 18; }
+        private int ChooseTarget() { double choice=random.NextDouble(); return choice<.12 ? 2 : choice<.40 ? 3 : 4; }
         private static void Release(Fragment fragment) { fragment.NativePhoto.Dispose(); if (fragment.Sprite != null) fragment.Sprite.Dispose(); if (fragment.Lease != null) fragment.Lease.Dispose(); }
         public void Clear() { foreach (var fragment in fragments) Release(fragment); fragments.Clear(); ResetSchedule(); }
         public BitmapSource Prepare(BitmapSource photo)
@@ -175,12 +182,14 @@ namespace MemoryDesktop
         internal bool DreamyBackground
         { get { return background.Dreamy; } set { background.Dreamy = value; InvalidateVisual(); if (FrameInvalidated != null) FrameInvalidated(); } }
         internal double Time { get; private set; }
+        private double requestTime,loadLead;
         public event Action<PhotoSurface> PhotoRequested;
         internal event Action FrameInvalidated;
         internal bool RequestPending { get; set; }
         internal int RequestSerial { get; private set; }
         internal bool Suspended { get; set; }
         internal int ActiveCount { get { return effect.ActiveCount; } }
+        internal int VisibleCount { get { return effect.VisibleCount(Time,.60); } }
         public PhotoSurface(IPhotoEffect photoEffect) { effect = photoEffect; IsHitTestVisible = false; ClipToBounds = true; }
         internal void SetViewport(Size size) { effect.SetViewport(size); }
         public void Tick(double elapsed)
@@ -190,13 +199,14 @@ namespace MemoryDesktop
             InvalidateVisual();
             if (FrameInvalidated != null) FrameInvalidated();
             if (!RequestPending && effect.NeedsPhoto(Time) && PhotoRequested != null)
-            { RequestPending = true; RequestSerial++; PhotoRequested(this); }
+            { RequestPending = true; RequestSerial++; requestTime=Time; PhotoRequested(this); }
         }
-        public void Deliver(BitmapSource photo) { effect.Add(photo, Time, null); RequestPending = false; InvalidateVisual(); if (FrameInvalidated != null) FrameInvalidated(); }
+        private void ObserveLoad(bool decoded) { if(decoded) {loadLead=loadLead*.65+Math.Min(1.2,Math.Max(0,Time-requestTime))*.35;effect.SetLoadLead(loadLead);} }
+        public void Deliver(BitmapSource photo) { ObserveLoad(photo!=null); effect.Add(photo, Time, null); RequestPending = false; InvalidateVisual(); if (FrameInvalidated != null) FrameInvalidated(); }
         internal bool DeliverLease(PhotoLease lease)
-        { bool accepted = effect.Add(lease == null ? null : lease.Image, Time, lease); RequestPending = false; InvalidateVisual(); if (FrameInvalidated != null) FrameInvalidated(); return accepted; }
+        { ObserveLoad(lease!=null); bool accepted = effect.Add(lease == null ? null : lease.Image, Time, lease); RequestPending = false; InvalidateVisual(); if (FrameInvalidated != null) FrameInvalidated(); return accepted; }
         internal BitmapSource Prepare(BitmapSource photo) { return effect.Prepare(photo); }
-        public void Reset() { effect.Clear(); Time = 0; RequestSerial++; RequestPending = false; InvalidateVisual(); if (FrameInvalidated != null) FrameInvalidated(); }
+        public void Reset() { effect.Clear(); Time = 0; requestTime=0;loadLead=0;effect.SetLoadLead(0); RequestSerial++; RequestPending = false; InvalidateVisual(); if (FrameInvalidated != null) FrameInvalidated(); }
         protected override void OnRender(DrawingContext drawing) { effect.SetViewport(RenderSize); background.Draw(drawing, RenderSize, Time); effect.Draw(drawing, RenderSize, Time); }
         internal void DrawNative(System.Drawing.Graphics drawing, int width, int height)
         { var size = new Size(width, height); background.DrawNative(drawing, size, Time); effect.DrawNative(drawing, size, Time); }

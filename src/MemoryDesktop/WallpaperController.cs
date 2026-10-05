@@ -296,7 +296,7 @@ namespace MemoryDesktop
         {
             if (preview || disposed) return;
             if (maintenanceCount % 5 == 0)
-                foreach (var window in windows) Diagnostics.Log("State time=" + window.Surface.Time.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " fragments=" + window.Surface.ActiveCount + " globalLeases=" + leases.ActiveCount + " suspended=" + window.Surface.Suspended + " pending=" + window.Surface.RequestPending + " window=" + NativeDesktop.Describe(window.Handle) + " " + window.PaintMetrics);
+                foreach (var window in windows) Diagnostics.Log("State time=" + window.Surface.Time.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " fragments=" + window.Surface.ActiveCount + " clearlyVisible=" + window.Surface.VisibleCount + " globalLeases=" + leases.ActiveCount + " suspended=" + window.Surface.Suspended + " pending=" + window.Surface.RequestPending + " window=" + NativeDesktop.Describe(window.Handle) + " " + window.PaintMetrics);
             bool active = !settings.Paused && !sessionLocked && !powerSuspended && windows.Any(window => !NativeDesktop.IsCovered(window.Display));
             frames.Interval = TimeSpan.FromMilliseconds(active ? 1000.0 / 30 : 1000);
             if (source != null && source.Count > 0 && (!NativeDesktop.IsExplorerHost(host) || windows.Count == 0 || windows.Any(window => !NativeDesktop.IsWindow(window.Handle))))

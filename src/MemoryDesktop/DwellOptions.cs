@@ -3,15 +3,16 @@ using Forms = System.Windows.Forms;
 
 namespace MemoryDesktop
 {
-    public enum PhotoDwell { Short, Medium, Long }
+    public enum PhotoDwell { Short, Medium, Long, Brief }
 
     internal static class DwellOptions
     {
-        internal static readonly PhotoDwell[] Presets = { PhotoDwell.Short, PhotoDwell.Medium, PhotoDwell.Long };
+        internal static readonly PhotoDwell[] Presets = { PhotoDwell.Brief, PhotoDwell.Short, PhotoDwell.Medium, PhotoDwell.Long };
         internal static void Bounds(PhotoDwell preset, out double minimum, out double maximum)
         {
             switch (preset)
             {
+                case PhotoDwell.Brief: minimum = 3; maximum = 5; break;
                 case PhotoDwell.Medium: minimum = 9; maximum = 12; break;
                 case PhotoDwell.Long: minimum = 11; maximum = 17; break;
                 default: minimum = 6; maximum = 8; break;

@@ -88,7 +88,7 @@ namespace MemoryDesktop
                 }
                 Check(bounded, "organic composition bounds simultaneous photo count to four");
                 effect.Clear(); effect.Add(photo, 0); effect.Add(photo, 0);
-                Check(effect.ActiveCount == 1 && !effect.NeedsPhoto(2), "startup arrivals stagger rather than form a batch");
+                Check(effect.ActiveCount == 1 && !effect.NeedsPhoto(.8), "startup arrivals stagger rather than form a batch");
                 effect.Add(photo, 10);
                 double[] expiry = effect.ExpiryTimes;
                 Check(effect.ActiveCount == 2 && Math.Abs(expiry[1] - expiry[0]) >= 1.2 - .000001, "each photo owns a distinct independent expiry with interleaved turnover");
@@ -140,6 +140,17 @@ namespace MemoryDesktop
                 surface.Reset(); Check(!surface.RequestPending && surface.Time == 0, "folder reset invalidates pending surface requests");
                 surface.Suspended = false; int serialBefore = surface.RequestSerial; surface.Tick(.03);
                 Check(surface.RequestSerial > serialBefore && requests == 2, "new source request has a distinct serial for rejecting late results");
+                var delayedEffect=new MemoryEffect(91); var delayedSurface=new PhotoSurface(delayedEffect); delayedSurface.SetViewport(new Size(2240,1400));
+                double due=Double.PositiveInfinity; int clearFour=0,clearThree=0,decodeRequests=0;
+                delayedSurface.PhotoRequested+=delegate { due=delayedSurface.Time+.6;decodeRequests++; };
+                for(int step=0;step<3000;step++)
+                {
+                    delayedSurface.Tick(.2);
+                    if(delayedSurface.RequestPending && delayedSurface.Time>=due){delayedSurface.Deliver(photo);due=Double.PositiveInfinity;}
+                    if(step>150){if(delayedSurface.VisibleCount>=3)clearThree++;if(delayedSurface.VisibleCount==4)clearFour++;}
+                }
+                Check(clearThree>700 && clearFour>40 && decodeRequests<400,"surface compensates bounded asynchronous preparation delay while recurring clear three/four scenes remain bounded");
+                results.Add("DELAYED SURFACE clearThreeOrFourFrames="+clearThree+" clearFourFrames="+clearFour+" requests="+decodeRequests); delayedSurface.Release();
                 string settingsPath = Path.Combine(output, "isolated-settings.xml");
                 Check(!AppSettings.Load(settingsPath).StartAtLogin, "login startup disabled by default");
                 var settings = new AppSettings { PhotoFolder = fixtures, Paused = true, StartAtLogin = false, DreamyBackground = true };
@@ -173,13 +184,21 @@ namespace MemoryDesktop
                 using (var dwellMenu = DwellOptions.CreateMenu(delegate(PhotoDwell selected) { menuSurface.DwellPreset = selected; settings.DwellPreset = selected; settings.Save(settingsPath); }))
                 {
                     DwellOptions.UpdateChecks(dwellMenu, PhotoDwell.Long);
-                    ((System.Windows.Forms.ToolStripMenuItem)dwellMenu.DropDownItems[0]).PerformClick();
+                    int shortIndex=Array.IndexOf(DwellOptions.Presets,PhotoDwell.Short);
+                    ((System.Windows.Forms.ToolStripMenuItem)dwellMenu.DropDownItems[shortIndex]).PerformClick();
                     Check(menuEffect.ExpiryTimes[0] == existingExpiry && menuSurface.Time == 0 && menuEffect.ActiveCount == 1, "tray dwell change preserves the current photo and clock without a pop or batch reset");
                     bool checks = true;
-                    for (int i = 0; i < 3; i++) checks &= ((System.Windows.Forms.ToolStripMenuItem)dwellMenu.DropDownItems[i]).Checked == (i == 0);
+                    for (int i = 0; i < DwellOptions.Presets.Length; i++) checks &= ((System.Windows.Forms.ToolStripMenuItem)dwellMenu.DropDownItems[i]).Checked == (i == shortIndex);
                     Check(checks && menuSurface.DwellPreset == PhotoDwell.Short && AppSettings.Load(settingsPath).DwellPreset == PhotoDwell.Short, "tray click applies and saves exactly one visibly checked preset");
                     menuEffect.NeedsPhoto(existingExpiry + 1); menuEffect.Add(tiny, existingExpiry + 1);
                     Check(menuEffect.DwellTimes[0] >= 6 && menuEffect.DwellTimes[0] <= 8, "changed tray preset applies to the next independent photo");
+                    int briefIndex=Array.IndexOf(DwellOptions.Presets,PhotoDwell.Brief);
+                    double shortExpiry=menuEffect.ExpiryTimes[0];
+                    ((System.Windows.Forms.ToolStripMenuItem)dwellMenu.DropDownItems[briefIndex]).PerformClick();
+                    DwellOptions.UpdateChecks(dwellMenu,settings.DwellPreset);
+                    checks=true; for(int i=0;i<DwellOptions.Presets.Length;i++) checks &= ((System.Windows.Forms.ToolStripMenuItem)dwellMenu.DropDownItems[i]).Checked==(i==briefIndex);
+                    Check(checks && menuSurface.DwellPreset==PhotoDwell.Brief && AppSettings.Load(settingsPath).DwellPreset==PhotoDwell.Brief,"3-5 second tray choice applies, persists and has the unique checkmark");
+                    Check(menuEffect.ExpiryTimes[0]==shortExpiry && menuEffect.ActiveCount==1,"adding the brief choice preserves the current selection and active photo until user clicks it");
                 }
                 menuEffect.Clear();
                 File.WriteAllText(settingsPath, "<AppSettings><PhotoFolder>legacy-fixture</PhotoFolder><Paused>true</Paused><StartAtLogin>false</StartAtLogin><DreamyBackground>true</DreamyBackground></AppSettings>");

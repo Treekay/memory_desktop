@@ -19,6 +19,8 @@ namespace MemoryDesktop
             }
             if (args.Length > 0 && args[0] == "--self-test")
                 return SelfTests.Run(args.Length > 1 ? args[1] : Path.Combine(Path.GetTempPath(), "MemoryDesktop-tests"));
+            if (args.Length > 1 && args[0] == "--diagnose-composition")
+            { File.WriteAllText(args[1],CompositionDiagnostics.SelectedReport()); return 0; }
             if (args.Length > 0 && (args[0] == "--diagnose-host" || args[0] == "--diagnose-selected"))
             {
                 string path = args.Length > 1 ? args[1] : "host-diagnostics.txt";
