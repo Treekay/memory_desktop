@@ -19,6 +19,7 @@ namespace MemoryDesktop
         private readonly Random random;
         private int cursor;
         private string previous;
+        private readonly object selectionGate = new object();
         public int Count { get { return files.Count; } }
         public bool WasTruncated { get; private set; }
 
@@ -64,6 +65,37 @@ namespace MemoryDesktop
                 files.Remove(path); cursor--;
             }
             return null;
+        }
+
+        internal PhotoLease NextLease(PhotoLeases leases, CancellationToken cancellation)
+        {
+            lock (selectionGate)
+            {
+                int remaining = files.Count; string fallback = null;
+                while (remaining-- > 0 && files.Count > 0)
+                {
+                    cancellation.ThrowIfCancellationRequested();
+                    if (cursor >= files.Count) Shuffle();
+                    string path = files[cursor++];
+                    if (files.Count > 1 && path == previous && remaining > 0) { fallback = path; continue; }
+                    var lease = DecodeLease(path, leases, cancellation);
+                    if (lease != null) return lease;
+                }
+                return fallback == null ? null : DecodeLease(fallback, leases, cancellation);
+            }
+        }
+        private PhotoLease DecodeLease(string path, PhotoLeases leases, CancellationToken cancellation)
+        {
+            var lease = leases.TryAcquire(path, cancellation);
+            if (lease == null) return null;
+            bool accepted = false;
+            try
+            {
+                cancellation.ThrowIfCancellationRequested(); lease.Image = Decode(path); cancellation.ThrowIfCancellationRequested();
+                if (lease.Image != null) { previous = path; accepted = true; return lease; }
+                files.Remove(path); cursor = Math.Max(0, cursor - 1); return null;
+            }
+            finally { if (!accepted) lease.Dispose(); }
         }
 
         internal static BitmapSource Decode(string path)

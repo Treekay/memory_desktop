@@ -22,6 +22,7 @@ namespace MemoryDesktop
         private readonly string[] args;
         private readonly List<WallpaperWindow> windows = new List<WallpaperWindow>();
         private readonly SemaphoreSlim decoder = new SemaphoreSlim(1, 1);
+        private readonly PhotoLeases leases = new PhotoLeases();
         private readonly DispatcherTimer frames = new DispatcherTimer(DispatcherPriority.Background);
         private readonly DispatcherTimer maintenance = new DispatcherTimer(DispatcherPriority.Background);
         private readonly DispatcherTimer rescanTimer = new DispatcherTimer(DispatcherPriority.Background);
@@ -227,17 +228,22 @@ namespace MemoryDesktop
             int requestSerial = surface.RequestSerial;
             var cancellation = sourceCancellation.Token;
             BitmapSource image = null;
+            PhotoLease lease = null;
             try
             {
                 if (selected != null)
                 {
                     await decoder.WaitAsync(cancellation);
-                    try { image = await Task.Run(() => surface.Prepare(selected.Next(cancellation))); }
+                    try
+                    {
+                        lease = await Task.Run(() => selected.NextLease(leases, cancellation));
+                        if (lease != null) { lease.Image = await Task.Run(() => surface.Prepare(lease.Image)); image = lease.Image; }
+                    }
                     finally { decoder.Release(); }
                 }
                 if (!disposed && requestGeneration == generation && requestSerial == surface.RequestSerial && windows.Any(window => window.Surface == surface))
                 {
-                    surface.Deliver(image);
+                    if (surface.DeliverLease(lease)) lease = null;
                     if (!preview) Diagnostics.Log("Delivered generation=" + generation + " decoded=" + (image != null) + " photoPixels=" + (image == null ? "none" : image.PixelWidth + "x" + image.PixelHeight));
                     if (image == null && selected != null && selected.Count == 0 && !preview && !noUsablePhotosShown)
                     {
@@ -254,6 +260,7 @@ namespace MemoryDesktop
             }
             finally
             {
+                if (lease != null) lease.Dispose();
                 if (!disposed && requestSerial == surface.RequestSerial) surface.RequestPending = false;
             }
         }
@@ -289,7 +296,7 @@ namespace MemoryDesktop
         {
             if (preview || disposed) return;
             if (maintenanceCount % 5 == 0)
-                foreach (var window in windows) Diagnostics.Log("State time=" + window.Surface.Time.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " fragments=" + window.Surface.ActiveCount + " suspended=" + window.Surface.Suspended + " pending=" + window.Surface.RequestPending + " window=" + NativeDesktop.Describe(window.Handle) + " " + window.PaintMetrics);
+                foreach (var window in windows) Diagnostics.Log("State time=" + window.Surface.Time.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " fragments=" + window.Surface.ActiveCount + " globalLeases=" + leases.ActiveCount + " suspended=" + window.Surface.Suspended + " pending=" + window.Surface.RequestPending + " window=" + NativeDesktop.Describe(window.Handle) + " " + window.PaintMetrics);
             bool active = !settings.Paused && !sessionLocked && !powerSuspended && windows.Any(window => !NativeDesktop.IsCovered(window.Display));
             frames.Interval = TimeSpan.FromMilliseconds(active ? 1000.0 / 30 : 1000);
             if (source != null && source.Count > 0 && (!NativeDesktop.IsExplorerHost(host) || windows.Count == 0 || windows.Any(window => !NativeDesktop.IsWindow(window.Handle))))

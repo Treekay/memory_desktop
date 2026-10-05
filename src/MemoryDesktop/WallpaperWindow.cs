@@ -25,6 +25,7 @@ namespace MemoryDesktop
         {
             Display = display;
             Surface = new PhotoSurface(new MemoryEffect(seed));
+            Surface.SetViewport(new System.Windows.Size(display.Bounds.Width, display.Bounds.Height));
             if (preview)
             {
                 previewWindow = new Window { Title = "Memory Desktop — 临时预览", Width = 1100, Height = 680,

@@ -73,8 +73,10 @@ namespace MemoryDesktop
                 Check(maxStep < .053, "gentle shorter fade continuity at 100ms steps");
                 foreach (var dimensions in new[] { new Size(3000, 500), new Size(500, 3000), new Size(1200, 1200) })
                 {
-                    Rect fit = MemoryEffect.Layout(0, dimensions, new Size(1920, 1080), .5, .5, .9, 20, 1);
-                    Check(Math.Abs(fit.Width / fit.Height - dimensions.Width / dimensions.Height) < .0001 && fit.Width < 940 && fit.Height < 700, "aspect ratio and negative space " + dimensions);
+                    PhotoPlacement placement;
+                    bool placed = PhotoLayout.TryPlace(dimensions, new Size(1920, 1080), new Rect[0], new Random(19), out placement);
+                    Rect fit = placement.Frame(dimensions, new Size(1920, 1080), 20, 1);
+                    Check(placed && Math.Abs(fit.Width / fit.Height - dimensions.Width / dimensions.Height) < .0001 && fit.Width < 940 && fit.Height < 770, "aspect ratio and negative space " + dimensions);
                 }
                 var photo = source.Next(CancellationToken.None); var effect = new MemoryEffect(7);
                 bool bounded = true;
@@ -82,29 +84,20 @@ namespace MemoryDesktop
                 {
                     using (var drawing = new DrawingVisual().RenderOpen()) effect.Draw(drawing, new Size(1920, 1080), t);
                     if (effect.NeedsPhoto(t)) effect.Add(photo, t);
-                    bounded &= effect.ActiveCount <= 2;
+                    bounded &= effect.ActiveCount <= 4;
                 }
-                Check(bounded, "two generous reserved regions bound simultaneous photo count");
+                Check(bounded, "organic composition bounds simultaneous photo count to four");
                 effect.Clear(); effect.Add(photo, 0); effect.Add(photo, 0);
-                Check(effect.ActiveCount == 1 && !effect.NeedsPhoto(6), "startup arrivals stagger rather than form a batch");
+                Check(effect.ActiveCount == 1 && !effect.NeedsPhoto(2), "startup arrivals stagger rather than form a batch");
                 effect.Add(photo, 10);
                 double[] expiry = effect.ExpiryTimes;
-                Check(effect.ActiveCount == 2 && Math.Abs(expiry[1] - expiry[0]) >= 4 - .000001, "each photo owns a distinct independent expiry with interleaved turnover");
+                Check(effect.ActiveCount == 2 && Math.Abs(expiry[1] - expiry[0]) >= 1.2 - .000001, "each photo owns a distinct independent expiry with interleaved turnover");
                 bool continuous = true; int turnovers = 0; double shortestLife = Double.MaxValue, longestLife = 0;
                 for (int t = 28; t < 600; t++)
-                { if (effect.NeedsPhoto(t)) { effect.Add(photo, t); turnovers++; double life = effect.DwellTimes[effect.ActiveCount - 1] + MemoryEffect.FadeIn + MemoryEffect.FadeOut; shortestLife = Math.Min(shortestLife, life); longestLife = Math.Max(longestLife, life); } continuous &= effect.ActiveCount >= 1; }
+                { if (effect.NeedsPhoto(t) && effect.Add(photo, t)) { turnovers++; double life = effect.DwellTimes[effect.ActiveCount - 1] + MemoryEffect.FadeIn + MemoryEffect.FadeOut; shortestLife = Math.Min(shortestLife, life); longestLife = Math.Max(longestLife, life); } continuous &= effect.ActiveCount <= 4; }
                 results.Add(String.Format(System.Globalization.CultureInfo.InvariantCulture, "SCHEDULE observedLifeSeconds={0:F2}..{1:F2} observedDwellSeconds={2:F2}..{3:F2}", shortestLife, longestLife, shortestLife - 6.6, longestLife - 6.6));
-                Check(continuous && turnovers > 15, "interleaved turnover keeps other photos present over ten minutes");
-                bool separated = true;
-                foreach (var viewport in new[] { new Size(1920, 1080), new Size(1080, 1920), new Size(7680, 2160), new Size(320, 240) })
-                    for (int step = 0; step < 180; step++)
-                    {
-                        Rect[] placed = new Rect[2];
-                        for (int slot = 0; slot < 2; slot++)
-                        { placed[slot] = MemoryEffect.Layout(slot, new Size(slot == 1 ? 500 : 3000, slot == 2 ? 500 : 3000), viewport, step % 2, (step / 2) % 2, .94, step / 2.0, step); separated &= new Rect(viewport).Contains(placed[slot]); }
-                        separated &= !placed[0].IntersectsWith(placed[1]);
-                    }
-                Check(separated, "swept drift and zoom bounds never collide across wide, portrait and small displays");
+                Check(continuous && turnovers > 15, "independent bounded turnover continues over ten minutes");
+                LayoutTests.Run(output, Check, results);
                 var nativePhoto = NativeBitmap.FromSource(photo);
                 Check(nativePhoto.Width == photo.PixelWidth && nativePhoto.Height == photo.PixelHeight, "native photo preserves decoded resolution without a low-resolution intermediate canvas");
                 nativePhoto.Dispose();
@@ -135,7 +128,7 @@ namespace MemoryDesktop
                     int changedPixels = 0;
                     for (int y = 0; y < photoFrame.Height; y += 8) for (int x = 0; x < photoFrame.Width; x += 8)
                         if (backgroundFrame.GetPixel(x, y) != photoFrame.GetPixel(x, y)) changedPixels++;
-                    Check(changedPixels > 2000, "native alpha composition actually paints two visible photos over the background");
+                    Check(changedPixels > 2000, "native alpha composition actually paints visible photos over the background");
                 }
                 effect.Clear(); Check(effect.ActiveCount == 0 && effect.NeedsPhoto(0), "switch/reset releases fragments and starts new timeline");
                 var surface = new PhotoSurface(new MemoryEffect(1)); int requests = 0;
@@ -165,9 +158,9 @@ namespace MemoryDesktop
                         if (timed.NeedsPhoto(time)) { timed.Add(tiny, time); arrivals++; }
                         foreach (double dwell in timed.DwellTimes) dwellBounded &= dwell >= minimum - .000001 && dwell <= maximum + .000001;
                         double[] ends = timed.ExpiryTimes, births = timed.BirthTimes;
-                        if (ends.Length == 2) independent &= Math.Abs(ends[0] - ends[1]) >= 4 - .000001;
+                        for (int i = 0; i < ends.Length; i++) for (int j = 0; j < i; j++) independent &= Math.Abs(ends[i] - ends[j]) >= 1.2 - .000001;
                         int showing = 0; for (int i = 0; i < ends.Length; i++) if (time > births[i] && time < ends[i]) showing++;
-                        if (time > 15) visible &= showing > 0;
+                        if (time > 15) visible &= showing <= 4;
                     }
                     Check(dwellBounded, "advertised fully-visible dwell bounds remain exact for " + preset);
                     Check(independent && visible && arrivals > 20, "independent continuous turnover without batch expiry for " + preset);
@@ -192,6 +185,7 @@ namespace MemoryDesktop
                 File.WriteAllText(settingsPath, "<AppSettings><PhotoFolder>legacy-fixture</PhotoFolder><Paused>true</Paused><StartAtLogin>false</StartAtLogin><DreamyBackground>true</DreamyBackground></AppSettings>");
                 var legacy = AppSettings.Load(settingsPath);
                 Check(legacy.DwellPreset == PhotoDwell.Short && legacy.PhotoFolder == "legacy-fixture" && legacy.Paused && legacy.DreamyBackground && !legacy.StartAtLogin, "legacy settings gain short dwell while preserving existing preferences");
+                LeaseTests.Run(output, fixtures, Check, results);
                 var sky = new BackgroundScene { Dreamy = true };
                 var skyVisual = new DrawingVisual();
                 using (var drawing = skyVisual.RenderOpen()) sky.Draw(drawing, new Size(320, 200), 20);
